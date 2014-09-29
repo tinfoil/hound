@@ -12,6 +12,7 @@ gem "coffeelint"
 gem "dalli"
 gem "faraday-http-cache"
 gem "font-awesome-rails"
+gem "foreman"
 gem "haml-rails"
 gem "high_voltage"
 gem "jquery-rails"
@@ -40,7 +41,6 @@ end
 
 group :development, :test do
   gem "byebug"
-  gem "foreman"
   gem "konacha"
   gem "poltergeist"
   gem "rspec-rails", ">= 2.14"
