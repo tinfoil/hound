@@ -26,6 +26,7 @@ gem "rails", "4.2"
 gem "responders", "~> 2.0"
 gem "resque", "~> 1.25.0"
 gem "resque-retry"
+gem "resque-sentry"
 gem "rubocop", "0.25.0"
 gem "sass-rails"
 gem "scss-lint", require: false
