@@ -10,6 +10,16 @@ class Analytics
     track(event: "Signed In")
   end
 
+  def track_repo_activation_failed(repo)
+    track(
+      event: "Repo Activation Failed",
+      properties: {
+        name: repo.full_github_name,
+        private: repo.private
+      }
+    )
+  end
+
   def track_repo_activated(repo)
     track(
       event: "Repo Activated",
@@ -48,6 +58,15 @@ class Analytics
       properties: {
         name: repo.full_github_name,
         private: repo.private,
+      }
+    )
+  end
+
+  def track_show_cop_names
+    track(
+      event: "Using ShowCopNames",
+      properties: {
+        owner: user
       }
     )
   end

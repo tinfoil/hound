@@ -1,22 +1,23 @@
-require "spec_helper"
+require "rails_helper"
 
 describe RepoActivator do
   describe "#activate" do
     context "with org repo" do
       it "will enqueue org invitation job" do
-        allow(JobQueue).to receive(:push).with(OrgInvitationJob)
+        allow(AcceptOrgInvitationsJob).to receive(:perform_later)
         repo = create(:repo, in_organization: true)
         stub_github_api
         activator = build_activator(repo: repo)
 
         activator.activate
 
-        expect(JobQueue).to have_received(:push).with(OrgInvitationJob)
+        expect(AcceptOrgInvitationsJob).to have_received(:perform_later)
       end
 
       it "marks repo as active" do
         repo = create(:repo, in_organization: true)
-        stub_github_api
+        github = stub_github_api
+        allow(github).to receive(:accept_pending_invitations)
         activator = build_activator(repo: repo)
 
         result = activator.activate
@@ -28,7 +29,7 @@ describe RepoActivator do
 
     context "without org repo" do
       it "will not enqueue org invitation job" do
-        allow(JobQueue).to receive(:push).with(OrgInvitationJob)
+        allow(AcceptOrgInvitationsJob).to receive(:perform_later)
         repo = create(:repo)
         stub_github_api
         activator = build_activator(repo: repo)
@@ -36,7 +37,7 @@ describe RepoActivator do
         activator.activate
 
         expect(repo.in_organization).to be_falsy
-        expect(JobQueue).not_to have_received(:push).with(OrgInvitationJob)
+        expect(AcceptOrgInvitationsJob).not_to have_received(:perform_later)
       end
 
       it "marks repo as active" do
@@ -97,7 +98,7 @@ describe RepoActivator do
       end
     end
 
-    context "when adding hound to rope results in an error" do
+    context "when adding hound to repo results in an error" do
       it "returns false" do
         activator = build_activator
         allow(AddHoundToRepo).to receive(:run).and_raise(Octokit::Error.new)
@@ -105,6 +106,18 @@ describe RepoActivator do
         result = activator.activate
 
         expect(result).to be_falsy
+      end
+
+      it "adds an error" do
+        activator = build_activator
+        error_message = "error"
+        allow(AddHoundToRepo).to receive(:run).and_raise(Octokit::Forbidden.new)
+        allow(ErrorMessageTranslation).to receive(:from_error_response).
+          and_return(error_message)
+
+        activator.activate
+
+        expect(activator.errors).to match_array([error_message])
       end
 
       it "reports raised exception to Sentry" do
@@ -141,7 +154,6 @@ describe RepoActivator do
     context "when repo deactivation succeeds" do
       it "marks repo as deactivated" do
         repo = create(:repo)
-        create(:membership, repo: repo)
         activator = build_activator(repo: repo)
         stub_github_api
 
@@ -152,7 +164,6 @@ describe RepoActivator do
 
       it "removes GitHub hook" do
         repo = create(:repo)
-        create(:membership, repo: repo)
         activator = build_activator(repo: repo)
         github_api = stub_github_api
 
@@ -162,17 +173,24 @@ describe RepoActivator do
         expect(repo.hook_id).to be_nil
       end
 
+      it "removes hound from repo" do
+        repo = create(:repo)
+        activator = build_activator(repo: repo)
+        github_api = stub_github_api
+
+        activator.deactivate
+
+        expect(RemoveHoundFromRepo).to have_received(:run).
+          with(repo.full_github_name, github_api)
+      end
+
       it "returns true" do
+        activator = build_activator
         stub_github_api
-        token = "githubtoken"
-        allow(JobQueue).to receive(:push)
-        membership = create(:membership)
-        repo = membership.repo
-        activator = RepoActivator.new(github_token: token, repo: repo)
 
         result = activator.deactivate
 
-        expect(result).to be_truthy
+        expect(result).to be true
       end
     end
 
@@ -183,7 +201,7 @@ describe RepoActivator do
 
         result = activator.deactivate
 
-        expect(result).to be_falsy
+        expect(result).to be false
       end
 
       it "only swallows Octokit errors" do
@@ -194,10 +212,22 @@ describe RepoActivator do
         expect { activator.deactivate }.to raise_error(error)
       end
     end
+
+    context "when removing houndci user from org fails" do
+      it "returns true" do
+        activator = build_activator
+        stub_github_api
+        allow(RemoveHoundFromRepo).to receive(:run).and_return(false)
+
+        result = activator.deactivate
+
+        expect(result).to be true
+      end
+    end
   end
 
   def build_activator(token: "githubtoken", repo: build(:repo))
-    allow(JobQueue).to receive(:push).and_return(true)
+    allow(RemoveHoundFromRepo).to receive(:run)
     allow(AddHoundToRepo).to receive(:run).and_return(true)
 
     RepoActivator.new(github_token: token, repo: repo)

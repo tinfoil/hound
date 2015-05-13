@@ -5,3 +5,15 @@
 .pull-right {
   float: right;
 }
+
+.va-wrapper {
+  @include size(100%);
+  display: table;
+}
+
+.va-cell {
+  @include size(100%);
+  display: table-cell;
+  text-align: center;
+  vertical-align: middle;
+}

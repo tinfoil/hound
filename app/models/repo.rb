@@ -1,9 +1,9 @@
 class Repo < ActiveRecord::Base
-  has_many :memberships
-  has_many :users, through: :memberships
   has_many :builds
-
+  has_many :memberships, dependent: :destroy
+  belongs_to :owner
   has_one :subscription
+  has_many :users, through: :memberships
 
   alias_attribute :name, :full_github_name
 
@@ -57,6 +57,10 @@ class Repo < ActiveRecord::Base
 
   def exempt?
     ENV["EXEMPT_ORGS"] && ENV["EXEMPT_ORGS"].split(",").include?(organization)
+  end
+
+  def total_violations
+    Violation.joins(:build).where(builds: { repo_id: id }).count
   end
 
   private

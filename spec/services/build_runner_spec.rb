@@ -1,4 +1,4 @@
-require 'spec_helper'
+require "rails_helper"
 
 describe BuildRunner, '#run' do
   context 'with active repo and opened pull request' do
@@ -42,7 +42,9 @@ describe BuildRunner, '#run' do
     end
 
     it "comments a maximum number of times" do
-      allow(ENV).to receive(:[]).with("MAX_COMMENTS").and_return("1")
+      allow(ENV).to receive(:[]).with("HOUND_GITHUB_TOKEN").
+        and_return("something")
+      stub_const("::BuildRunner::MAX_COMMENTS", 1)
       build_runner = make_build_runner
       stubbed_commenter
       violations = build_list(:violation, 2)
@@ -54,7 +56,7 @@ describe BuildRunner, '#run' do
       build_runner.run
 
       expect(commenter).to have_received(:comment_on_violations).
-        with(violations.take(ENV["MAX_COMMENTS"].to_i))
+        with(violations.take(BuildRunner::MAX_COMMENTS))
     end
 
     it 'initializes StyleChecker with modified files and config' do
@@ -71,6 +73,8 @@ describe BuildRunner, '#run' do
 
     it 'initializes PullRequest with payload and Hound token' do
       repo = create(:repo, :active, github_id: 123)
+      user = create(:user, token: "user_token")
+      user.repos << repo
       payload = stubbed_payload(github_repo_id: repo.github_id)
       build_runner = BuildRunner.new(payload)
       stubbed_pull_request
@@ -80,7 +84,7 @@ describe BuildRunner, '#run' do
 
       build_runner.run
 
-      expect(PullRequest).to have_received(:new).with(payload)
+      expect(PullRequest).to have_received(:new).with(payload, user.token)
     end
 
     it "creates GitHub statuses" do
@@ -92,7 +96,11 @@ describe BuildRunner, '#run' do
       )
       build_runner = BuildRunner.new(payload)
       stubbed_pull_request
-      stubbed_style_checker_with_violations
+      violations = [
+        build(:violation),
+        build(:violation, messages: ["wrong", "bad"]),
+      ]
+      stubbed_style_checker(violations: violations)
       stubbed_commenter
       github_api = stubbed_github_api
 
@@ -101,12 +109,67 @@ describe BuildRunner, '#run' do
       expect(github_api).to have_received(:create_pending_status).with(
         "test/repo",
         "headsha",
-        "Hound is reviewing changes."
+        "Hound is busy reviewing changes..."
       )
       expect(github_api).to have_received(:create_success_status).with(
         "test/repo",
         "headsha",
-        "Hound has reviewed the changes."
+        "3 violations found."
+      )
+    end
+
+    it "upserts repository owner" do
+      owner_github_id = 56789
+      owner_name = "john"
+      repo = create(:repo, :active, github_id: 123)
+      payload = stubbed_payload(
+        github_repo_id: repo.github_id,
+        full_repo_name: "test/repo",
+        head_sha: "headsha",
+        repository_owner_id: owner_github_id,
+        repository_owner_name: owner_name,
+        repository_owner_is_organization?: true,
+      )
+      build_runner = BuildRunner.new(payload)
+      stubbed_pull_request
+      stubbed_style_checker_with_violations
+      stubbed_commenter
+      stubbed_github_api
+
+      build_runner.run
+
+      owner_attributes = Owner.first.slice(:name, :github_id, :organization)
+      expect(owner_attributes).to eq(
+        "name" => owner_name,
+        "github_id" => owner_github_id,
+        "organization" => true
+      )
+      expect(repo.reload.owner).to eq Owner.first
+    end
+
+    it "fails the GitHub status with invalid config" do
+      repo = create(:repo, :active, github_id: 123)
+      payload = stubbed_payload(
+        github_repo_id: repo.github_id,
+        full_repo_name: "test/repo",
+        head_sha: "headsha"
+      )
+      build_runner = BuildRunner.new(payload)
+      pull_request = stubbed_pull_request_with_file("random.js", "")
+      style_checker = stubbed_style_checker_with_invalid_javascript_config(
+        pull_request
+      )
+      allow(build_runner).to receive(:style_checker).and_return(style_checker)
+      allow(build_runner).to receive(:pull_request).and_return(pull_request)
+      github_api = stubbed_github_api
+
+      build_runner.run
+
+      expect(github_api).to have_received(:create_error_status).with(
+        "test/repo",
+        "headsha",
+        I18n.t(:config_error_status),
+        configuration_url
       )
     end
   end
@@ -162,6 +225,23 @@ describe BuildRunner, '#run' do
     end
   end
 
+  context "with expired token" do
+    it "removes the expired token" do
+      repo = create(:repo, :active)
+      user = create(:user, token: "expired_token")
+      repo.users << user
+      build_runner = make_build_runner(repo: repo)
+      github_api = stubbed_github_api
+      allow(github_api).to receive(:create_pending_status).
+        and_raise(Octokit::Unauthorized)
+
+      expect { build_runner.run }.to raise_error BuildRunner::ExpiredToken
+      expect(user.reload.token).to be_nil
+
+      expect { build_runner.run }.to raise_error Octokit::Unauthorized
+    end
+  end
+
   def make_build_runner(repo: create(:repo, :active, github_id: 123))
     payload = stubbed_payload(github_repo_id: repo.github_id)
     BuildRunner.new(payload)
@@ -169,9 +249,13 @@ describe BuildRunner, '#run' do
 
   def stubbed_payload(options = {})
     defaults = {
+      action: "synchronize",
       pull_request_number: 123,
       head_sha: "somesha",
-      full_repo_name: "foo/bar"
+      full_repo_name: "foo/bar",
+      repository_owner_id: 456,
+      repository_owner_name: "foo",
+      repository_owner_is_organization?: true,
     }
     double("Payload", defaults.merge(options))
   end
@@ -206,14 +290,99 @@ describe BuildRunner, '#run' do
     pull_request
   end
 
+  def stubbed_pull_request_with_file(filename, file_content)
+    file = double_file(filename, file_content)
+    double_pull_request_with_files([file])
+  end
+
+  def double_file(filename, file_content)
+    double(
+      "CommitFile",
+      filename: filename,
+      content: file_content,
+      removed?: false
+    )
+  end
+
+  def double_pull_request_with_files(files)
+    double(
+      "PullRequest",
+      pull_request_files: files,
+      opened?: true,
+      repository_owner_name: "test"
+    )
+  end
+
+  def stubbed_style_checker_with_config_file(pull_request, filename, content)
+    config = config_for_file(filename, content)
+    style_checker = StyleChecker.new(pull_request)
+    allow(style_checker).to receive(:config).and_return(config)
+
+    style_checker
+  end
+
+  def stubbed_style_checker_with_invalid_javascript_config(pull_request)
+    stubbed_style_checker_with_config_file(
+      pull_request,
+      "javascript.json",
+      invalid_json
+    )
+  end
+
+  def invalid_json
+    <<-EOS.strip_heredoc
+      {
+        "predef": ["myGlobal",]
+      }
+    EOS
+  end
+
   def stubbed_github_api
     github_api = double(
       "GithubApi",
       create_pending_status: nil,
-      create_success_status: nil
+      create_success_status: nil,
+      create_error_status: nil
     )
     allow(GithubApi).to receive(:new).and_return(github_api)
 
     github_api
+  end
+
+  def stub_commit(configuration)
+    commit = double("Commit")
+    hound_config = configuration.delete(:hound_config)
+    allow(commit).to receive(:file_content)
+    allow(commit).to receive(:file_content).
+      with(RepoConfig::HOUND_CONFIG).and_return(hound_config)
+    stub_configuration_for_commit(configuration, commit)
+
+    commit
+  end
+
+  def stub_configuration_for_commit(configuration, commit)
+    configuration.each do |filename, contents|
+      allow(commit).to receive(:file_content).
+        with(filename).and_return(contents)
+    end
+  end
+
+  def config_for_file(file_path, content)
+    hound_config = <<-EOS.strip_heredoc
+      java_script:
+        enabled: true
+        config_file: #{file_path}
+    EOS
+
+    commit = stub_commit(
+      hound_config: hound_config,
+      "#{file_path}" => content
+    )
+
+    RepoConfig.new(commit)
+  end
+
+  def configuration_url
+    Rails.application.routes.url_helpers.configuration_url(host: ENV["HOST"])
   end
 end

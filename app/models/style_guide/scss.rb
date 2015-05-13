@@ -32,28 +32,38 @@ module StyleGuide
     end
 
     def config
-      SCSSLint::Config.new(custom_options || default_options)
-    end
-
-    def custom_options
-      if options = repo_config.for(name)
-        merge(default_options, options)
-      end
-    end
-
-    def merge(a, b)
-      SCSSLint::Config.send(:smart_merge, a, b)
-    end
-
-    def default_options
-      @default_options ||= SCSSLint::Config.send(
-        :load_options_hash_from_file,
-        default_config_file
+      @config ||= SCSSLint::Config.load(
+        custom_config_file.path,
+        merge_with_default: false
       )
     end
 
+    def custom_config_file
+      merged_config = SCSSLint::Config.send(
+        :smart_merge,
+        default_options,
+        custom_config
+      )
+
+      Tempfile.create("").tap do |tempfile|
+        tempfile.write(merged_config.to_yaml)
+        tempfile.rewind
+      end
+    end
+
+    def custom_config
+      repo_config.for(name) || {}
+    end
+
+    def default_options
+      YAML.load_file(default_config_file)
+    end
+
     def default_config_file
-      DefaultConfigFile.new(DEFAULT_CONFIG_FILENAME, repository_owner).path
+      DefaultConfigFile.new(
+        DEFAULT_CONFIG_FILENAME,
+        repository_owner_name
+      ).path
     end
   end
 end

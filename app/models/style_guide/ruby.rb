@@ -28,7 +28,8 @@ module StyleGuide
     end
 
     def parsed_source(file)
-      RuboCop::ProcessedSource.new(file.content, file.filename)
+      absolute_filepath = File.expand_path(file.filename)
+      RuboCop::ProcessedSource.new(file.content, absolute_filepath)
     end
 
     def config
@@ -54,14 +55,20 @@ module StyleGuide
       RuboCop::Config.new
     end
 
+    # This is deprecated in favor of RuboCop's DisplayCopNames option.
+    # Let's track how often we see this and remove it if we see fit.
     def rubocop_options
-      if config["ShowCopNames"]
+      if config.delete("ShowCopNames")
+        Analytics.new(repository_owner_name).track_show_cop_names
         { debug: true }
       end
     end
 
     def default_config_file
-      DefaultConfigFile.new(DEFAULT_CONFIG_FILENAME, repository_owner).path
+      DefaultConfigFile.new(
+        DEFAULT_CONFIG_FILENAME,
+        repository_owner_name
+      ).path
     end
   end
 end

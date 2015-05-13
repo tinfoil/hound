@@ -1,6 +1,6 @@
 source "https://rubygems.org"
 
-ruby "2.2.0"
+ruby "2.2.2"
 
 gem "active_model_serializers", "0.8.3"
 gem "analytics-ruby", "~> 2.0.0", require: "segment/analytics"
@@ -22,15 +22,15 @@ gem "octokit"
 gem "omniauth-github"
 gem "paranoia", "~> 2.0"
 gem "pg"
-gem "rails", "4.2"
-gem "responders", "~> 2.0"
+gem "rails", "4.2.1"
 gem "resque", "~> 1.25.0"
-gem "resque-retry"
+gem "resque-scheduler"
 gem "resque-sentry"
-gem "rubocop", "0.25.0"
+gem "rubocop", "0.29.1"
 gem "sass-rails"
-gem "scss-lint", require: false
+gem "scss-lint", "0.34.0", require: false
 gem "sentry-raven"
+gem "split", require: "split/dashboard"
 gem "stripe"
 gem "uglifier", ">= 1.0.3"
 gem "unicorn"
@@ -41,15 +41,16 @@ end
 
 group :development, :test do
   gem "byebug"
+  gem "dotenv-rails"
   gem "jasmine-rails"
   gem "konacha"
   gem "poltergeist"
-  gem "rspec-rails", ">= 2.14"
+  gem "rspec-rails", ">= 3.2"
 end
 
 group :test do
   gem "capybara", "~> 2.4.0"
-  gem "capybara-webkit"
+  gem "capybara-webkit", "~> 1.5.1"
   gem "database_cleaner"
   gem "factory_girl_rails"
   gem "launchy"

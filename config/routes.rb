@@ -1,6 +1,7 @@
 Houndapp::Application.routes.draw do
   mount Resque::Server, at: "/queue"
   mount JasmineRails::Engine => "/specs" if defined?(JasmineRails)
+  mount Split::Dashboard, at: "split"
 
   get "/auth/github/callback", to: "sessions#create"
   get "/sign_out", to: "sessions#destroy"
@@ -9,16 +10,24 @@ Houndapp::Application.routes.draw do
 
   resource :account, only: [:show]
   resources :builds, only: [:create]
-  resource :credit_card, only: [:update]
 
   resources :repos, only: [:index] do
-    resource :activation, only: [:create]
-    resource :deactivation, only: [:create]
-    resource :subscription, only: [:create, :destroy]
+    with_options(defaults: { format: :json }) do
+      resource :activation, only: [:create]
+      resource :deactivation, only: [:create]
+      resource :subscription, only: [:create, :destroy]
+    end
   end
 
-  resources :repo_syncs, only: [:index, :create]
-  resource :user, only: [:show]
+  with_options(defaults: { format: :json }) do
+    resource :credit_card, only: [:update]
+    resources :repo_syncs, only: [:index, :create]
+    resource :user, only: [:show]
+  end
+
+  %w(404 422 500).each do |status_code|
+    get status_code, to: "errors#show", code: status_code
+  end
 
   root to: "home#index"
 end

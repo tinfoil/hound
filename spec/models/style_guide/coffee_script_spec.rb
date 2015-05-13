@@ -1,7 +1,35 @@
-require "spec_helper"
+require "rails_helper"
 
 describe StyleGuide::CoffeeScript do
   include ConfigurationHelper
+
+  describe "enabled?" do
+    context "with legacy coffee_script key" do
+      it "is not enabled" do
+        commit = double("Commit", file_content: <<-EOS.strip_heredoc)
+          coffee_script:
+            enabled: false
+        EOS
+        repo_config = RepoConfig.new(commit)
+        style_guide = StyleGuide::CoffeeScript.new(repo_config, "RalphJoe")
+
+        expect(style_guide).not_to be_enabled
+      end
+    end
+
+    context "with coffeescript key" do
+      it "is not enabled" do
+        commit = double("Commit", file_content: <<-EOS.strip_heredoc)
+          coffeescript:
+            enabled: false
+        EOS
+        repo_config = RepoConfig.new(commit)
+        style_guide = StyleGuide::CoffeeScript.new(repo_config, "RalphJoe")
+
+        expect(style_guide).not_to be_enabled
+      end
+    end
+  end
 
   describe "#violations_in_file" do
     context "with default configuration" do
@@ -78,7 +106,7 @@ describe StyleGuide::CoffeeScript do
         spy_on_file_read
         config_file = thoughtbot_configuration_file(StyleGuide::CoffeeScript)
 
-        violations_in("var foo = 'bar'", repository_owner: "thoughtbot")
+        violations_in("var foo = 'bar'", repository_owner_name: "thoughtbot")
 
         expect(File).to have_received(:read).
           with(config_file)
@@ -93,7 +121,7 @@ describe StyleGuide::CoffeeScript do
         spy_on_file_read
         config_file = default_configuration_file(StyleGuide::CoffeeScript)
 
-        violations_in("var foo = 'bar'", repository_owner: "not_thoughtbot")
+        violations_in("var foo = 'bar'", repository_owner_name: "foo")
 
         expect(File).to have_received(:read).
           with(config_file)
@@ -102,11 +130,55 @@ describe StyleGuide::CoffeeScript do
       end
     end
 
+    context "given a `coffee.erb` file" do
+      it "lints the file" do
+        repo_config = double("RepoConfig", enabled_for?: true, for: {})
+        style_guide = StyleGuide::CoffeeScript.new(repo_config, "Ralph")
+        line = double("Line", content: "blah", number: 1, patch_position: 2)
+        file = double(
+          "File",
+          content: "class strange_ClassNAME",
+          filename: "test.coffee.erb",
+          line_at: line
+        )
+
+        violations = style_guide.violations_in_file(file)
+        violation = violations.first
+
+        expect(violations.size).to eq 1
+        expect(violation.filename).to eq "test.coffee.erb"
+        expect(violation.patch_position).to eq line.patch_position
+        expect(violation.line_number).to eq 1
+        expect(violation.messages).to match_array(
+          ["Class names should be camel cased"]
+        )
+      end
+
+      it "removes the ERB tags from the file" do
+        repo_config = double("RepoConfig", enabled_for?: true, for: {})
+        style_guide = StyleGuide::CoffeeScript.new(repo_config, "Ralph")
+        line = double("Line", content: "blah", number: 1, patch_position: 2)
+        file = double(
+          "File",
+          content: "leonidasLastWords = <%= raise 'hell' %>",
+          filename: "test.coffee.erb",
+          line_at: line,
+        )
+
+        violations = style_guide.violations_in_file(file)
+
+        expect(violations).to be_empty
+      end
+    end
+
     private
 
-    def violations_in(content, repository_owner: "ralph")
+    def violations_in(content, repository_owner_name: "ralph")
       repo_config = double("RepoConfig", enabled_for?: true, for: {})
-      style_guide = StyleGuide::CoffeeScript.new(repo_config, repository_owner)
+      style_guide = StyleGuide::CoffeeScript.new(
+        repo_config,
+        repository_owner_name
+      )
       style_guide.violations_in_file(build_file(content)).flat_map(&:messages)
     end
 

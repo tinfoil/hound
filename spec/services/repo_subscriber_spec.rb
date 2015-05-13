@@ -1,4 +1,4 @@
-require "spec_helper"
+require "rails_helper"
 
 describe RepoSubscriber do
   describe ".subscribe" do
@@ -80,6 +80,22 @@ describe RepoSubscriber do
 
         expect(result).to be_falsy
         expect(stripe_delete_request).to have_been_requested
+      end
+    end
+
+    context "when repo already has a subscription" do
+      context "and it is not marked as deleted" do
+        it "returns the existing subscription" do
+          subscription = create(:subscription)
+
+          result = RepoSubscriber.subscribe(
+            subscription.repo,
+            subscription.user,
+            "cardtoken"
+          )
+
+          expect(result).to eq subscription
+        end
       end
     end
   end

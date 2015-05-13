@@ -1,4 +1,4 @@
-require "spec_helper"
+require "rails_helper"
 
 describe Violation do
   it { should belong_to(:build) }
@@ -39,6 +39,14 @@ describe Violation do
       changed = violation.on_changed_line?
 
       expect(changed).to eq false
+    end
+  end
+
+  describe "#messages_count" do
+    it "returns the number of violation messages" do
+      violation = build(:violation, messages: ["foo", "bar"])
+
+      expect(violation.messages_count).to eq 2
     end
   end
 end

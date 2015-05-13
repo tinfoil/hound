@@ -1,13 +1,15 @@
-require "fast_spec_helper"
+require "rails_helper"
 require "app/models/pull_request"
 require "app/models/commit"
 require "lib/github_api"
 
 describe PullRequest do
+  let(:token) { "some_github_token" }
+
   describe "#opened?" do
     context "when payload action is opened" do
       it "returns true" do
-        pull_request = PullRequest.new(payload_stub(action: "opened"))
+        pull_request = PullRequest.new(payload_stub(action: "opened"), token)
 
         expect(pull_request).to be_opened
       end
@@ -16,7 +18,7 @@ describe PullRequest do
     context "when payload action is not opened" do
       it "returns false" do
         payload = payload_stub(action: "notopened")
-        pull_request = PullRequest.new(payload)
+        pull_request = PullRequest.new(payload, token)
 
         expect(pull_request).not_to be_opened
       end
@@ -27,7 +29,7 @@ describe PullRequest do
     context "when payload action is synchronize" do
       it "returns true" do
         payload = payload_stub(action: "synchronize")
-        pull_request = PullRequest.new(payload)
+        pull_request = PullRequest.new(payload, token)
 
         expect(pull_request).to be_synchronize
       end
@@ -36,7 +38,7 @@ describe PullRequest do
     context "when payload action is not synchronize" do
       it "returns false" do
         payload = payload_stub(action: "notsynchronize")
-        pull_request = PullRequest.new(payload)
+        pull_request = PullRequest.new(payload, token)
 
         expect(pull_request).not_to be_synchronize
       end
@@ -78,6 +80,24 @@ describe PullRequest do
     end
   end
 
+  describe "#pull_request_files" do
+    it "does not include removed files" do
+      added_file = double(filename: "foo.rb", status: "added")
+      modified_file = double(filename: "baz.rb", status: "modified")
+      removed_file = double(filename: "bar.rb", status: "removed")
+      all_pull_request_files = [added_file, removed_file, modified_file]
+      github = double(:github, pull_request_files: all_pull_request_files)
+      pull_request = pull_request_stub(github)
+
+      files = pull_request.pull_request_files
+      file_names = files.map(&:filename)
+
+      expect(file_names).to match_array(
+        [added_file.filename, modified_file.filename]
+      )
+    end
+  end
+
   def violation_stub(options = {})
     defaults =  {
       messages: ["A comment"],
@@ -98,6 +118,6 @@ describe PullRequest do
 
   def pull_request_stub(api, payload = payload_stub)
     allow(GithubApi).to receive(:new).and_return(api)
-    PullRequest.new(payload)
+    PullRequest.new(payload, token)
   end
 end

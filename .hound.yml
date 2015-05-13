@@ -1,5 +1,2 @@
 ruby:
-  enabled: true
-
-coffee_script:
-  enabled: true
+  config_file: .ruby-style.yml

@@ -10,6 +10,17 @@ module GithubApiHelper
     )
   end
 
+  def stub_remove_collaborator_request(username, repo_name, user_token)
+    stub_request(
+      :delete,
+      "https://api.github.com/repos/#{repo_name}/collaborators/#{username}"
+    ).with(
+      headers: { "Authorization" => "token #{user_token}" }
+    ).to_return(
+      status: 204,
+    )
+  end
+
   def stub_repo_requests(user_token)
     stub_paginated_repo_requests(user_token)
     stub_orgs_request(user_token)
@@ -88,6 +99,41 @@ module GithubApiHelper
     )
   end
 
+  def stub_team_repos_request(team_id, user_github_token)
+    stub_request(
+      :get,
+      "https://api.github.com/teams/#{team_id}/repos?per_page=100"
+    ).with(
+      headers: { "Authorization" => "token #{user_github_token}" }
+    ).to_return(
+      status: 200,
+      body: File.read("spec/support/fixtures/team_repos.json"),
+      headers: { "Content-Type" => "application/json; charset=utf-8" }
+    )
+  end
+
+  def stub_remove_repo_from_team_request(team_id, repo_name, user_github_token)
+    stub_request(
+      :delete,
+      "https://api.github.com/teams/#{team_id}/repos/#{repo_name}"
+    ).with(
+      headers: { "Authorization" => "token #{user_github_token}" }
+    ).to_return(
+      status: 200
+    )
+  end
+
+  def stub_remove_user_from_team_request(team_id, username, user_github_token)
+    stub_request(
+      :delete,
+      "https://api.github.com/teams/#{team_id}/memberships/#{username}"
+    ).with(
+      headers: { "Authorization" => "token #{user_github_token}" }
+    ).to_return(
+      status: 200
+    )
+  end
+
   def stub_user_teams_request(user_token)
     stub_request(
       :get,
@@ -112,7 +158,7 @@ module GithubApiHelper
     )
   end
 
-  def stub_add_user_to_team_request(username, team_id, user_token)
+  def stub_add_user_to_team_request(team_id, username, user_token)
     url = "https://api.github.com/teams/#{team_id}/memberships/#{username}"
     stub_request(:put, url).
       with(headers: { "Authorization" => "token #{user_token}" }).
@@ -153,7 +199,12 @@ module GithubApiHelper
       "https://api.github.com/repos/#{repo_name}/statuses/#{sha}"
     ).with(
       headers: { "Authorization" => "token #{hound_token}" },
-      body: { context: "hound", description: description, state: state }
+      body: {
+        context: "hound",
+        description: description,
+        state: state,
+        target_url: nil
+      }
     ).to_return(
       status: 404,
       headers: { "Content-Type" => "application/json; charset=utf-8" }
@@ -248,7 +299,7 @@ module GithubApiHelper
       headers: { "Authorization" => "token #{token}" }
     ).to_return(
       status: 200,
-      body: File.read('spec/support/fixtures/github_repos_response_for_jimtom.json'),
+      body: File.read("spec/support/fixtures/github_repos_response_for_jimtom_page2.json"),
       headers: {
         "Link" => %(<#{repos_url}?page=3&per_page=100>; rel="next"),
         "Content-Type" => "application/json; charset=utf-8",
@@ -277,7 +328,7 @@ module GithubApiHelper
       headers: { "Authorization" => "token #{token}" }
     ).to_return(
       status: 200,
-      body: File.read('spec/support/fixtures/github_repos_response_for_jimtom.json'),
+      body: File.read("spec/support/fixtures/github_repos_response_for_jimtom_org.json"),
       headers: {
         "Link" => %(<#{org_repos_url}?page=2&per_page=100>; rel="next"),
         "Content-Type" => "application/json; charset=utf-8",
@@ -291,7 +342,7 @@ module GithubApiHelper
       headers: { "Authorization" => "token #{token}" }
     ).to_return(
       status: 200,
-      body: File.read('spec/support/fixtures/github_repos_response_for_jimtom.json'),
+      body: File.read("spec/support/fixtures/github_repos_response_for_jimtom_org_page2.json"),
       headers: {
         "Link" => %(<#{org_repos_url}?page=3&per_page=100>; rel="next"),
         "Content-Type" => "application/json; charset=utf-8",
@@ -374,28 +425,41 @@ module GithubApiHelper
       repo_name,
       sha,
       "pending",
-      "Hound is reviewing changes."
+      "Hound is busy reviewing changes..."
     )
     stub_status_request(
       repo_name,
       sha,
       "success",
-      "Hound has reviewed the changes."
+      anything
     )
   end
 
-  def stub_status_request(full_repo_name, sha, state, description)
+  def stub_status_request(repo_name, sha, state, description, target_url = nil)
     stub_request(
       :post,
-      "https://api.github.com/repos/#{full_repo_name}/statuses/#{sha}"
+      "https://api.github.com/repos/#{repo_name}/statuses/#{sha}",
     ).with(
       headers: { "Authorization" => "token #{hound_token}" },
-      body: { context: "hound", description: description, state: state }
-    ).to_return(
+      body: status_request_body(description, state, target_url),
+    ).to_return(status_request_return_value)
+  end
+
+  def status_request_return_value
+    {
       status: 201,
       body: File.read("spec/support/fixtures/github_status_response.json"),
-      headers: { "Content-Type" => "application/json; charset=utf-8" }
-    )
+      headers: { "Content-Type" => "application/json; charset=utf-8" },
+    }
+  end
+
+  def status_request_body(description, state, target_url)
+    {
+      context: "hound",
+      description: description,
+      state: state,
+      target_url: target_url,
+    }
   end
 
   def hound_token
