@@ -42,15 +42,7 @@ Houndapp::Application.configure do
   # config.logger = ActiveSupport::TaggedLogging.new(SyslogLogger.new)
 
   # Use a different cache store in production
-  # config.cache_store = :dalli_store,
-  #   (ENV["MEMCACHIER_SERVERS"] || "").split(","),
-  #   {
-  #     :username => ENV["MEMCACHIER_USERNAME"],
-  #     :password => ENV["MEMCACHIER_PASSWORD"],
-  #     :failover => true,
-  #     :socket_timeout => 1.5,
-  #     :socket_failure_delay => 0.2
-  #   }
+  # config.cache_store = :dalli_store
 
   # Enable serving of images, stylesheets, and JavaScripts from an asset server
   # config.action_controller.asset_host = "http://assets.example.com"
@@ -60,9 +52,6 @@ Houndapp::Application.configure do
   # Disable delivery errors, bad email addresses will be ignored
   # config.action_mailer.raise_delivery_errors = false
   config.action_mailer.default_url_options = { :host => 'houndci.com' }
-
-  # Enable threaded mode
-  # config.threadsafe!
 
   # Enable locale fallbacks for I18n (makes lookups for any locale fall back to
   # the I18n.default_locale when a translation can not be found)
@@ -75,3 +64,5 @@ Houndapp::Application.configure do
   # with SQLite, MySQL, and PostgreSQL)
   # config.active_record.auto_explain_threshold_in_seconds = 0.5
 end
+
+Rack::Timeout.timeout = (ENV["RACK_TIMEOUT"] || 20).to_i

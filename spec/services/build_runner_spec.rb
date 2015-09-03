@@ -3,7 +3,7 @@ require "rails_helper"
 describe BuildRunner, '#run' do
   context 'with active repo and opened pull request' do
     it 'creates a build record with violations' do
-      repo = create(:repo, :active, github_id: 123)
+      repo = create(:repo, :active)
       payload = stubbed_payload(
         github_repo_id: repo.github_id,
         pull_request_number: 5,
@@ -11,7 +11,7 @@ describe BuildRunner, '#run' do
         full_repo_name: repo.name
       )
       build_runner = BuildRunner.new(payload)
-      stubbed_style_checker_with_violations
+      stubbed_style_checker(violations: [build(:violation)])
       stubbed_commenter
       stubbed_pull_request
       stubbed_github_api
@@ -22,43 +22,48 @@ describe BuildRunner, '#run' do
 
       expect(builds.size).to eq 1
       expect(build).to eq repo.builds.last
-      expect(build.violations.count).to be >= 1
+      expect(build.violations.count).to eq 1
       expect(build.pull_request_number).to eq 5
       expect(build.commit_sha).to eq payload.head_sha
+      expect(build.payload).to eq ({ payload_stuff: "test" }).to_json
     end
 
     it "runs the BuildReport to finalize the build" do
       build_runner = make_build_runner
       stubbed_github_api
       pull_request = stubbed_pull_request
-      stubbed_style_checker_with_violations
+      stubbed_style_checker
       allow(BuildReport).to receive(:run)
 
       build_runner.run
 
-      expect(BuildReport).to have_received(:run).with(pull_request, Build.last)
+      expect(BuildReport).to have_received(:run).with(
+        build: Build.last,
+        pull_request: pull_request,
+        token: Hound::GITHUB_TOKEN,
+      )
     end
 
-    it 'initializes StyleChecker with modified files and config' do
+    it "reviews files via style checker" do
       build_runner = make_build_runner
       pull_request = stubbed_pull_request
-      stubbed_style_checker_with_violations
+      style_checker = stubbed_style_checker
       stubbed_commenter
       stubbed_github_api
 
       build_runner.run
 
-      expect(StyleChecker).to have_received(:new).with(pull_request)
+      expect(style_checker).to have_received(:review_files)
     end
 
     it 'initializes PullRequest with payload and Hound token' do
-      repo = create(:repo, :active, github_id: 123)
+      repo = create(:repo, :active)
       user = create(:user, token: "user_token")
       user.repos << repo
       payload = stubbed_payload(github_repo_id: repo.github_id)
       build_runner = BuildRunner.new(payload)
       stubbed_pull_request
-      stubbed_style_checker_with_violations
+      stubbed_style_checker
       stubbed_commenter
       stubbed_github_api
 
@@ -68,7 +73,7 @@ describe BuildRunner, '#run' do
     end
 
     it "creates GitHub statuses" do
-      repo = create(:repo, :active, github_id: 123)
+      repo = create(:repo, :active)
       payload = stubbed_payload(
         github_repo_id: repo.github_id,
         full_repo_name: "test/repo",
@@ -89,14 +94,19 @@ describe BuildRunner, '#run' do
       expect(github_api).to have_received(:create_pending_status).with(
         "test/repo",
         "headsha",
-        "Hound is busy reviewing changes..."
+        I18n.t(:pending_status),
+      )
+      expect(github_api).to have_received(:create_success_status).with(
+        "test/repo",
+        "headsha",
+        I18n.t(:complete_status, count: 3),
       )
     end
 
     it "upserts repository owner" do
       owner_github_id = 56789
       owner_name = "john"
-      repo = create(:repo, :active, github_id: 123)
+      repo = create(:repo, :active)
       payload = stubbed_payload(
         github_repo_id: repo.github_id,
         full_repo_name: "test/repo",
@@ -107,7 +117,7 @@ describe BuildRunner, '#run' do
       )
       build_runner = BuildRunner.new(payload)
       stubbed_pull_request
-      stubbed_style_checker_with_violations
+      stubbed_style_checker
       stubbed_commenter
       stubbed_github_api
 
@@ -123,7 +133,7 @@ describe BuildRunner, '#run' do
     end
 
     it "fails the GitHub status with invalid config" do
-      repo = create(:repo, :active, github_id: 123)
+      repo = create(:repo, :active)
       payload = stubbed_payload(
         github_repo_id: repo.github_id,
         full_repo_name: "test/repo",
@@ -134,8 +144,8 @@ describe BuildRunner, '#run' do
       style_checker = stubbed_style_checker_with_invalid_javascript_config(
         pull_request
       )
-      allow(build_runner).to receive(:style_checker).and_return(style_checker)
-      allow(build_runner).to receive(:pull_request).and_return(pull_request)
+      allow(StyleChecker).to receive(:new).and_return(style_checker)
+      allow(PullRequest).to receive(:new).and_return(pull_request)
       github_api = stubbed_github_api
 
       build_runner.run
@@ -143,7 +153,7 @@ describe BuildRunner, '#run' do
       expect(github_api).to have_received(:create_error_status).with(
         "test/repo",
         "headsha",
-        I18n.t(:config_error_status),
+        I18n.t(:config_error_status, filename: "javascript.json"),
         configuration_url
       )
     end
@@ -176,14 +186,14 @@ describe BuildRunner, '#run' do
 
   context "with subscribed private repo and opened pull request" do
     it "tracks build events" do
-      repo = create(:repo, :active, github_id: 123, private: true)
+      repo = create(:repo, :active, private: true)
       create(:subscription, repo: repo)
       payload = stubbed_payload(
         github_repo_id: repo.github_id,
         full_repo_name: repo.name
       )
       build_runner = BuildRunner.new(payload)
-      stubbed_style_checker_with_violations
+      stubbed_style_checker
       stubbed_commenter
       stubbed_pull_request
       stubbed_github_api
@@ -213,7 +223,51 @@ describe BuildRunner, '#run' do
     end
   end
 
-  def make_build_runner(repo: create(:repo, :active, github_id: 123))
+  context "when user's token doesn't have access to the repo" do
+    it "removes the repo from user" do
+      reachable_repo = create(:repo, :active)
+      unreachable_repo = create(:repo, :active)
+      user = create(:user, token: "user_test_token")
+      user.repos += [reachable_repo, unreachable_repo]
+      payload = stubbed_payload(
+        github_repo_id: unreachable_repo.github_id,
+        full_repo_name: unreachable_repo.name,
+      )
+      build_runner = BuildRunner.new(payload)
+      github_api = stubbed_github_api
+      allow(github_api).to receive(:create_pending_status).
+        and_raise(Octokit::NotFound)
+
+      expect { build_runner.run }.to raise_error Octokit::NotFound
+
+      expect(user.reload.repos).to eq [reachable_repo]
+    end
+  end
+
+  context "when build creation fails" do
+    it "does not schedule review job" do
+      repo = create(:repo, :active)
+      build_runner = make_build_runner(repo: repo)
+      stubbed_github_api
+      stubbed_pull_request_with_file("test.scss", "")
+      force_fail_build_creation
+      allow(Resque).to receive(:enqueue)
+
+      begin
+        build_runner.run
+      rescue ActiveRecord::StatementInvalid
+        # noop
+      end
+
+      expect(Resque).not_to have_received(:enqueue)
+    end
+
+    def force_fail_build_creation
+      allow(SecureRandom).to receive(:uuid)
+    end
+  end
+
+  def make_build_runner(repo: create(:repo, :active))
     payload = stubbed_payload(github_repo_id: repo.github_id)
     BuildRunner.new(payload)
   end
@@ -227,17 +281,18 @@ describe BuildRunner, '#run' do
       repository_owner_id: 456,
       repository_owner_name: "foo",
       repository_owner_is_organization?: true,
+      build_data: { payload_stuff: "test" }
     }
     double("Payload", defaults.merge(options))
   end
 
-  def stubbed_style_checker_with_violations
-    stubbed_style_checker(violations: [build(:violation)])
-  end
-
-  def stubbed_style_checker(violations:)
-    style_checker = double(:style_checker, violations: violations)
-    allow(StyleChecker).to receive(:new).and_return(style_checker)
+  def stubbed_style_checker(violations: [])
+    file_review = build(:file_review, :completed, violations: violations)
+    style_checker = double("StyleChecker", review_files: nil)
+    allow(StyleChecker).to receive(:new) do |*args|
+      build = args[1]
+      build.file_reviews << file_review
+    end.and_return(style_checker)
 
     style_checker
   end
@@ -249,18 +304,20 @@ describe BuildRunner, '#run' do
     commenter
   end
 
-  def stubbed_pull_request
+  def stubbed_pull_request(files = [double("CommitFile")])
     head_commit = double(
       "HeadCommit",
       sha: "headsha",
       repo_name: "test/repo",
+      file_content: "",
     )
     pull_request = double(
-      :pull_request,
-      pull_request_files: [double(:file)],
+      "PullRequest",
+      commit_files: files,
       config: double(:config),
       opened?: true,
       head_commit: head_commit,
+      repository_owner_name: "test",
     )
     allow(PullRequest).to receive(:new).and_return(pull_request)
 
@@ -268,31 +325,25 @@ describe BuildRunner, '#run' do
   end
 
   def stubbed_pull_request_with_file(filename, file_content)
-    file = double_file(filename, file_content)
-    double_pull_request_with_files([file])
+    commit_file = commit_file_stub(filename, file_content)
+    stubbed_pull_request([commit_file])
   end
 
-  def double_file(filename, file_content)
+  def commit_file_stub(filename, file_content)
     double(
       "CommitFile",
       filename: filename,
       content: file_content,
-      removed?: false
-    )
-  end
-
-  def double_pull_request_with_files(files)
-    double(
-      "PullRequest",
-      pull_request_files: files,
-      opened?: true,
-      repository_owner_name: "test"
+      removed?: false,
+      sha: "abcd1234",
+      pull_request_number: 1,
+      patch: "sometext",
     )
   end
 
   def stubbed_style_checker_with_config_file(pull_request, filename, content)
     config = config_for_file(filename, content)
-    style_checker = StyleChecker.new(pull_request)
+    style_checker = StyleChecker.new(pull_request, build(:build))
     allow(style_checker).to receive(:config).and_return(config)
 
     style_checker

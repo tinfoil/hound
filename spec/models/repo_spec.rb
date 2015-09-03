@@ -14,30 +14,21 @@ describe Repo do
     expect(subject).to validate_uniqueness_of(:github_id)
   end
 
-  describe "#exempt?" do
-    context "when repo is exempt" do
+  describe "#bulk?" do
+    context "when repo is bulk" do
       it "returns true" do
+        create(:bulk_customer, org: "thoughtbot")
         repo = Repo.new(full_github_name: "thoughtbot/hound")
 
-        expect(repo).to be_exempt
+        expect(repo).to be_bulk
       end
     end
 
-    context "when repo is not exempt" do
+    context "when repo is not bulk" do
       it "returns false" do
         repo = Repo.new(full_github_name: "jimbob/hound")
 
-        expect(repo).not_to be_exempt
-      end
-    end
-
-    context "without exempt organizations" do
-      it "returns false" do
-        without_exempt_organizations
-
-        repo = Repo.new(full_github_name: "jimbob/hound")
-
-        expect(repo).not_to be_exempt
+        expect(repo).not_to be_bulk
       end
     end
 
@@ -45,7 +36,7 @@ describe Repo do
       it "returns false" do
         repo = Repo.new(full_github_name: nil)
 
-        expect(repo).not_to be_exempt
+        expect(repo).not_to be_bulk
       end
     end
   end
@@ -144,6 +135,24 @@ describe Repo do
         expect(repo.reload).to be_present
       end
     end
+
+    context "when one repo has taken the github name and another taken id" do
+      it "repors update failure" do
+        github_name = "foo/bar"
+        github_id = 40023
+        _repo_with_id = create(:repo, github_id: github_id)
+        _repo_with_name = create(:repo, full_github_name: github_name)
+        new_attributes = { github_id: github_id, full_github_name: github_name }
+        allow(Raven).to receive(:capture_exception)
+
+        Repo.find_or_create_with(new_attributes)
+
+        expect(Raven).to have_received(:capture_exception).with(
+          instance_of(ActiveRecord::RecordInvalid),
+          extra: { github_id: github_id, full_github_name: github_name }
+        )
+      end
+    end
   end
 
   describe ".find_and_update" do
@@ -158,9 +167,5 @@ describe Repo do
         expect(repo.full_github_name).to eq new_repo_name
       end
     end
-  end
-
-  def without_exempt_organizations
-    allow(ENV).to receive(:[]).with("EXEMPT_ORGS")
   end
 end

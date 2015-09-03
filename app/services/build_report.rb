@@ -1,52 +1,30 @@
-require "attr_extras"
-
 class BuildReport
   MAX_COMMENTS = ENV.fetch("MAX_COMMENTS").to_i
 
-  def self.run(pull_request, build)
-    new(pull_request, build).run
+  def self.run(pull_request:, build:, token:)
+    new(pull_request: pull_request, build: build, token: token).run
   end
 
-  pattr_initialize :pull_request, :build
+  def initialize(pull_request:, build:, token:)
+    @build = build
+    @pull_request = pull_request
+    @token = token
+  end
 
   def run
-    commenter.comment_on_violations(priority_violations)
-    create_success_status
-    track_subscribed_build_completed
+    if build.completed?
+      Commenter.new(pull_request).comment_on_violations(priority_violations)
+      set_commit_status
+      track_subscribed_build_completed
+    end
   end
 
   private
 
-  def commenter
-    Commenter.new(pull_request)
-  end
-
-  def token
-    ENV.fetch("HOUND_GITHUB_TOKEN")
-  end
-
-  def violations
-    build.violations
-  end
+  attr_reader :build, :token, :pull_request
 
   def priority_violations
-    violations.take(MAX_COMMENTS)
-  end
-
-  def create_success_status
-    github.create_success_status(
-      pull_request.head_commit.repo_name,
-      pull_request.head_commit.sha,
-      I18n.t(:success_status, count: violation_count),
-    )
-  end
-
-  def violation_count
-    violations.map(&:messages_count).sum
-  end
-
-  def github
-    @github ||= GithubApi.new(token)
+    build.violations.take(MAX_COMMENTS)
   end
 
   def track_subscribed_build_completed
@@ -55,5 +33,29 @@ class BuildReport
       analytics = Analytics.new(user)
       analytics.track_build_completed(build.repo)
     end
+  end
+
+  def set_commit_status
+    if fail_build?
+      commit_status.set_failure(build.violation_count)
+    else
+      commit_status.set_success(build.violation_count)
+    end
+  end
+
+  def fail_build?
+    repo_config.fail_on_violations? && build.violation_count > 0
+  end
+
+  def repo_config
+    RepoConfig.new(pull_request.head_commit)
+  end
+
+  def commit_status
+    CommitStatus.new(
+      repo_name: build.repo_name,
+      sha: build.commit_sha,
+      token: token,
+    )
   end
 end

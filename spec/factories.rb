@@ -3,19 +3,18 @@ FactoryGirl.define do
   sequence(:github_name) { |n| "github_name#{n}" }
 
   factory :build do
+    commit_sha "somesha"
     repo
-
-    trait :failed do
-      after(:build) { |build| build.violations << build(:violation) }
-    end
   end
 
   factory :file_review do
-    build
-
     trait :completed do
       completed_at Time.zone.now
     end
+
+    build
+
+    filename "the_thing.rb"
   end
 
   factory :repo do
@@ -35,10 +34,6 @@ FactoryGirl.define do
 
   factory :user do
     github_username { generate(:github_name) }
-
-    ignore do
-      repos []
-    end
   end
 
   factory :membership do
@@ -57,9 +52,8 @@ FactoryGirl.define do
   end
 
   factory :violation do
-    build
+    file_review
 
-    filename "the_thing.rb"
     patch_position 1
     line_number 42
     messages ["Trailing whitespace detected."]
@@ -68,5 +62,11 @@ FactoryGirl.define do
   factory :owner do
     github_id
     name { generate(:github_name) }
+  end
+
+  factory :bulk_customer do
+    org "bulk_org"
+    interval "monthly"
+    repo_limit 5
   end
 end

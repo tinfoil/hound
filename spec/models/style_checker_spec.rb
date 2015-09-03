@@ -1,17 +1,19 @@
 require "rails_helper"
 
-describe StyleChecker, "#violations" do
-  it "returns a collection of computed violations" do
-    stylish_file = stub_commit_file("good.rb", "def good; end")
-    violated_file = stub_commit_file("bad.rb", "def bad( a ); a; end  ")
-    pull_request =
-      stub_pull_request(pull_request_files: [stylish_file, violated_file])
-    expected_violations = ["Unnecessary spacing detected.",
-                           "Space inside parentheses detected.",
-                           "Trailing whitespace detected."]
+describe StyleChecker, "#review_files" do
+  it "returns a collection of file reviews with violations" do
+    stylish_commit_file = stub_commit_file("good.rb", "def good; end")
+    violated_commit_file = stub_commit_file("bad.rb", "def bad( a ); a; end  ")
+    pull_request = stub_pull_request(
+      commit_files: [stylish_commit_file, violated_commit_file]
+    )
+    expected_violations = [
+      "Unnecessary spacing detected.",
+      "Space inside parentheses detected.",
+      "Trailing whitespace detected.",
+    ]
 
-    violation_messages = StyleChecker.new(pull_request).violations.
-      flat_map(&:messages)
+    violation_messages = pull_request_violations(pull_request)
 
     expect(violation_messages).to eq expected_violations
   end
@@ -19,87 +21,89 @@ describe StyleChecker, "#violations" do
   context "for a Ruby file" do
     context "with style violations" do
       it "returns violations" do
-        file = stub_commit_file("ruby.rb", "puts 123    ")
-        pull_request = stub_pull_request(pull_request_files: [file])
+        commit_file = stub_commit_file("ruby.rb", "puts 123    ")
+        pull_request = stub_pull_request(commit_files: [commit_file])
+        expected_violations = [
+          "Unnecessary spacing detected.",
+          "Trailing whitespace detected.",
+        ]
 
-        violations = StyleChecker.new(pull_request).violations
-        messages = violations.flat_map(&:messages)
-        expected_violations = ["Unnecessary spacing detected.",
-                               "Trailing whitespace detected."]
+        violation_messages = pull_request_violations(pull_request)
 
-        expect(messages).to eq expected_violations
+        expect(violation_messages).to eq expected_violations
       end
     end
 
     context "with style violation on unchanged line" do
       it "returns no violations" do
-        file = stub_commit_file("foo.rb", "'wrong quotes'", UnchangedLine.new)
-        pull_request = stub_pull_request(pull_request_files: [file])
+        commit_file = stub_commit_file(
+          "foo.rb",
+          "'wrong quotes'",
+          UnchangedLine.new
+        )
+        pull_request = stub_pull_request(commit_files: [commit_file])
 
-        violations = StyleChecker.new(pull_request).violations
+        violation_messages = pull_request_violations(pull_request)
 
-        expect(violations.count).to eq 0
+        expect(violation_messages).to be_empty
       end
     end
 
     context "without style violations" do
       it "returns no violations" do
-        file = stub_commit_file("ruby.rb", "puts 123")
-        pull_request = stub_pull_request(pull_request_files: [file])
+        commit_file = stub_commit_file("ruby.rb", "puts 123")
+        pull_request = stub_pull_request(commit_files: [commit_file])
 
-        violations = StyleChecker.new(pull_request).violations
-        messages = violations.flat_map(&:messages)
+        violation_messages = pull_request_violations(pull_request)
 
-        expect(messages).to be_empty
+        expect(violation_messages).to be_empty
       end
     end
   end
 
   context "for a CoffeeScript file" do
     it "is processed with a coffee.js extension" do
-      file = stub_commit_file("test.coffee.js", "foo ->")
-      pull_request = stub_pull_request(pull_request_files: [file])
-      style_checker = StyleChecker.new(pull_request)
+      commit_file = stub_commit_file("test.coffee.js", "foo ->")
+      pull_request = stub_pull_request(commit_files: [commit_file])
       allow(RepoConfig).to receive(:new).and_return(stub_repo_config)
 
-      violations = style_checker.violations
-      messages = violations.flat_map(&:messages)
+      violation_messages = pull_request_violations(pull_request)
 
-      expect(messages).to eq ["Empty function"]
+      expect(violation_messages).to eq ["Empty function"]
     end
 
     it "is processed with a coffee.erb extension" do
-      file = stub_commit_file("test.coffee.erb", "class strange_ClassNAME")
-      pull_request = stub_pull_request(pull_request_files: [file])
-      style_checker = StyleChecker.new(pull_request)
+      commit_file = stub_commit_file(
+        "test.coffee.erb",
+        "class strange_ClassNAME"
+      )
+      pull_request = stub_pull_request(commit_files: [commit_file])
       allow(RepoConfig).to receive(:new).and_return(stub_repo_config)
 
-      violations = style_checker.violations
-      messages = violations.flat_map(&:messages)
+      violation_messages = pull_request_violations(pull_request)
 
-      expect(messages).to eq ["Class names should be camel cased"]
+      expect(violation_messages).to eq ["Class names should be camel cased"]
     end
 
     context "with style violations" do
       it "returns violations" do
-        file = stub_commit_file("test.coffee", "foo: ->")
-        pull_request = stub_pull_request(pull_request_files: [file])
+        commit_file = stub_commit_file("test.coffee", "foo: ->")
+        pull_request = stub_pull_request(commit_files: [commit_file])
 
-        violations = StyleChecker.new(pull_request).violations
-        messages = violations.flat_map(&:messages)
+        violation_messages = pull_request_violations(pull_request)
 
-        expect(messages).to eq ["Empty function"]
+        expect(violation_messages).to eq ["Empty function"]
       end
     end
 
     context "without style violations" do
       it "returns no violations" do
-        file = stub_commit_file("test.coffee", "alert('Hello World')")
-        pull_request = stub_pull_request(pull_request_files: [file])
+        commit_file = stub_commit_file("test.coffee", "alert('Hello World')")
+        pull_request = stub_pull_request(commit_files: [commit_file])
 
-        violations = StyleChecker.new(pull_request).violations
+        violation_messages = pull_request_violations(pull_request)
 
-        expect(violations).to be_empty
+        expect(violation_messages).to be_empty
       end
     end
   end
@@ -107,25 +111,23 @@ describe StyleChecker, "#violations" do
   context "for a JavaScript file" do
     context "with style violations" do
       it "returns violations" do
-        file = stub_commit_file("test.js", "var test = 'test'")
-        pull_request = stub_pull_request(pull_request_files: [file])
+        commit_file = stub_commit_file("test.js", "var test = 'test'")
+        pull_request = stub_pull_request(commit_files: [commit_file])
 
-        violations = StyleChecker.new(pull_request).violations
-        messages = violations.flat_map(&:messages)
+        violation_messages = pull_request_violations(pull_request)
 
-        expect(messages).to include "Missing semicolon."
+        expect(violation_messages).to include "Missing semicolon."
       end
     end
 
     context "without style violations" do
       it "returns no violations" do
-        file = stub_commit_file("test.js", "var test = 'test';")
-        pull_request = stub_pull_request(pull_request_files: [file])
+        commit_file = stub_commit_file("test.js", "var test = 'test';")
+        pull_request = stub_pull_request(commit_files: [commit_file])
 
-        violations = StyleChecker.new(pull_request).violations
-        messages = violations.flat_map(&:messages)
+        violation_messages = pull_request_violations(pull_request)
 
-        expect(messages).not_to include "Missing semicolon."
+        expect(violation_messages).not_to include "Missing semicolon."
       end
     end
 
@@ -141,47 +143,62 @@ describe StyleChecker, "#violations" do
           ".jshintignore" => "test.js"
         )
 
-        file = stub_commit_file("test.js", "var test = 'test'")
+        commit_file = stub_commit_file("test.js", "var test = 'test'")
         pull_request = stub_pull_request(
           head_commit: head_commit,
-          pull_request_files: [file]
+          commit_files: [commit_file]
         )
 
-        violations = StyleChecker.new(pull_request).violations
+        violation_messages = pull_request_violations(pull_request)
 
-        expect(violations).to be_empty
+        expect(violation_messages).to be_empty
       end
     end
   end
 
   context "for a SCSS file" do
+    it "does not immediately return violations" do
+      commit_file = stub_commit_file("test.scss", "* { color: red; }")
+      pull_request = stub_pull_request(commit_files: [commit_file])
+
+      violation_messages = pull_request_violations(pull_request)
+
+      expect(violation_messages).to be_empty
+    end
+  end
+
+  context "for a Python file" do
+    it "does not immediately return violations" do
+      commit_file = stub_commit_file("test.py", "import this")
+      pull_request = stub_pull_request(commit_files: [commit_file])
+
+      violation_messages = pull_request_violations(pull_request)
+
+      expect(violation_messages).to be_empty
+    end
+  end
+
+  context "for a Haml file" do
     context "with style violations" do
-      it "returns violations" do
-        file = stub_commit_file(
-          "test.scss",
-          ".table p.inner table td { background: red; }"
-        )
-        pull_request = stub_pull_request(pull_request_files: [file])
+      it "returns no violations" do
+        commit_file = stub_commit_file("test.haml", "%div.message 123")
+        pull_request = stub_pull_request(commit_files: [commit_file])
 
-        violations = StyleChecker.new(pull_request).violations
-        messages = violations.flat_map(&:messages)
+        violation_messages = pull_request_violations(pull_request)
 
-        expect(messages).to include(
-          "Selector should have depth of applicability no greater than 2, but was 4"
-        )
+        expect(violation_messages).to be_empty
       end
     end
 
     context "without style violations" do
       it "returns no violations" do
-        file = stub_commit_file("test.scss", "table td { color: green; }")
-        pull_request = stub_pull_request(pull_request_files: [file])
+        commit_file = stub_commit_file("test.haml", ".message 123")
+        pull_request = stub_pull_request(commit_files: [commit_file])
 
-        violations = StyleChecker.new(pull_request).violations
-        messages = violations.flat_map(&:messages)
+        violation_messages = pull_request_violations(pull_request)
 
-        expect(messages).not_to include(
-          "Selector should have depth of applicability no greater than 3"
+        expect(violation_messages).not_to include(
+          "`%div.message` can be written as `.message` since `%div` is implicit"
         )
       end
     end
@@ -189,23 +206,31 @@ describe StyleChecker, "#violations" do
 
   context "with unsupported file type" do
     it "uses unsupported style guide" do
-      file = stub_commit_file("fortran.f", %{PRINT *, "Hello World!"\nEND})
-      pull_request = stub_pull_request(pull_request_files: [file])
+      commit_file = stub_commit_file(
+        "fortran.f",
+        %{PRINT *, "Hello World!"\nEND}
+      )
+      pull_request = stub_pull_request(commit_files: [commit_file])
 
-      violations = StyleChecker.new(pull_request).violations
+      violation_messages = pull_request_violations(pull_request)
 
-      expect(violations).to eq []
+      expect(violation_messages).to be_empty
     end
   end
 
-  private
+  def pull_request_violations(pull_request)
+    build = build(:build)
+    StyleChecker.new(pull_request, build).review_files
+
+    build.violations.flat_map(&:messages)
+  end
 
   def stub_pull_request(options = {})
     head_commit = double("Commit", file_content: "")
     defaults = {
       file_content: "",
       head_commit: head_commit,
-      pull_request_files: [],
+      commit_files: [],
       repository_owner_name: "some_org"
     }
 
@@ -216,10 +241,13 @@ describe StyleChecker, "#violations" do
     line ||= Line.new(content: "foo", number: 1, patch_position: 2)
     formatted_contents = "#{contents}\n"
     double(
-      filename.split(".").first,
+      "CommitFile",
       filename: filename,
       content: formatted_contents,
       line_at: line,
+      sha: "abc123",
+      patch: "patch",
+      pull_request_number: 123
     )
   end
 

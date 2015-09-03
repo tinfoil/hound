@@ -21,12 +21,6 @@ module GithubApiHelper
     )
   end
 
-  def stub_repo_requests(user_token)
-    stub_paginated_repo_requests(user_token)
-    stub_orgs_request(user_token)
-    stub_paginated_org_repo_requests(user_token)
-  end
-
   def stub_repo_request(repo_name, token)
     stub_request(
       :get,
@@ -260,22 +254,24 @@ module GithubApiHelper
     )
   end
 
-  private
-
-  def stub_orgs_request(token)
-    stub_request(
-      :get,
-      'https://api.github.com/user/orgs'
-    ).with(
-      headers: { "Authorization" => "token #{token}" }
-    ).to_return(
-      status: 200,
-      body: File.read('spec/support/fixtures/github_orgs_response.json'),
-      headers: { 'Content-Type' => 'application/json; charset=utf-8' }
-    )
+  def stub_scopes_request(token: "token", scopes: "public_repo,user:email")
+    stub_request(:get, "https://api.github.com/user").
+      with(
+        headers: {
+          "Accept" => "application/vnd.github.v3+json",
+          "Authorization" => "token #{token}",
+          "Content-Type" => "application/json",
+          "User-Agent" => "Octokit Ruby Gem 4.0.0",
+        }
+      ).
+      to_return(
+        status: 200, body: "", headers: { "X-OAuth-Scopes" => scopes }
+      )
   end
 
-  def stub_paginated_repo_requests(token)
+  private
+
+  def stub_repos_requests(token)
     repos_url = "https://api.github.com/user/repos"
 
     stub_request(
@@ -309,49 +305,6 @@ module GithubApiHelper
     stub_request(
       :get,
       "#{repos_url}?page=3&per_page=100"
-    ).with(
-      headers: { "Authorization" => "token #{token}" }
-    ).to_return(
-      status: 200,
-      body: '[]',
-      headers: { 'Content-Type' => 'application/json; charset=utf-8' }
-    )
-  end
-
-  def stub_paginated_org_repo_requests(token)
-    org_repos_url = "https://api.github.com/orgs/thoughtbot/repos"
-
-    stub_request(
-      :get,
-      "#{org_repos_url}?per_page=100"
-    ).with(
-      headers: { "Authorization" => "token #{token}" }
-    ).to_return(
-      status: 200,
-      body: File.read("spec/support/fixtures/github_repos_response_for_jimtom_org.json"),
-      headers: {
-        "Link" => %(<#{org_repos_url}?page=2&per_page=100>; rel="next"),
-        "Content-Type" => "application/json; charset=utf-8",
-      }
-    )
-
-    stub_request(
-      :get,
-      "#{org_repos_url}?page=2&per_page=100"
-    ).with(
-      headers: { "Authorization" => "token #{token}" }
-    ).to_return(
-      status: 200,
-      body: File.read("spec/support/fixtures/github_repos_response_for_jimtom_org_page2.json"),
-      headers: {
-        "Link" => %(<#{org_repos_url}?page=3&per_page=100>; rel="next"),
-        "Content-Type" => "application/json; charset=utf-8",
-      }
-    )
-
-    stub_request(
-      :get,
-      "#{org_repos_url}?page=3&per_page=100"
     ).with(
       headers: { "Authorization" => "token #{token}" }
     ).to_return(
@@ -463,6 +416,6 @@ module GithubApiHelper
   end
 
   def hound_token
-    ENV["HOUND_GITHUB_TOKEN"]
+    Hound::GITHUB_TOKEN
   end
 end

@@ -1,16 +1,18 @@
 en:
   sync_repos: "Refresh repo list"
-  syncing_repos: "Loading repos..."
+  include_private_repos: "Include private repos"
+  syncing_repos: "Loading..."
   authenticate: "Sign In with GitHub"
+  sign_out: "Sign Out"
   active_repos: "Active repos"
   search_placeholder: "Search by repo"
   pending_status: "Hound is busy reviewing changes..."
-  success_status:
+  complete_status:
     zero: "No violations found. Woof!"
     one: "1 violation found."
     other: "%{count} violations found."
   config_error_status:
-    "Error parsing your config file. Click \"details\" for
+    "Error parsing config file: %{filename}. Click \"details\" for
     assistance."
 
   account:
@@ -18,6 +20,8 @@ en:
       "If you'd like to pay for Hound in bulk on a monthly or annual
       basis we're happy to make that happen. Email %{mail_to} with your
       GitHub org name and the number of repos you'd like to activate."
+    billable_email:
+      invalid: "Email is invalid"
 
   onboarding:
     title: "Let's keep that code in style:"
@@ -25,12 +29,12 @@ en:
     step_one_alt_title: "Hound is active on %{count} of your repos!"
     step_one_desc:
       "Hound watches for pull requests on all active repos.
-      Activating public repos cost $0 private repos cost $12."
+      Activating public repos costs $0; private repos cost $12."
     step_two_title: "Open a GitHub pull request on the repo."
     step_two_alt_title: "Open a pull request on an active repo."
     step_two_desc:
       "Hound will review all GitHub pull requests that are
-      opened on an activate repo for violations of your style
+      opened on an activated repo for violations of your style
       guide."
     step_three_title: "Hound comments on your pull request."
     step_three_desc:

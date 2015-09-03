@@ -33,7 +33,8 @@ CharacterLiteral:
   Enabled: false
 
 ClassAndModuleChildren:
-  Enabled: false
+  Enabled: true
+  EnforcedStyle: nested
 
 ClassLength:
   Enabled: false
@@ -170,6 +171,8 @@ PerlBackrefs:
 PredicateName:
   NamePrefixBlacklist:
     - is_
+  Exclude:
+    - spec/**/*
 
 Proc:
   Enabled: false
@@ -199,7 +202,10 @@ StringLiterals:
   EnforcedStyle: double_quotes
 
 TrailingComma:
-  Enabled: false
+  EnforcedStyleForMultiline: comma
+  SupportedStyles:
+    - comma
+    - no_comma
 
 TrivialAccessors:
   Enabled: false

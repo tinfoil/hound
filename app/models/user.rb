@@ -6,11 +6,6 @@ class User < ActiveRecord::Base
   has_many :subscribed_repos, through: :subscriptions, source: :repo
   has_many :subscriptions
 
-  delegate(
-    :card_last4,
-    to: :payment_gateway_customer
-  )
-
   validates :github_username, presence: true
 
   before_create :generate_remember_token
@@ -21,14 +16,6 @@ class User < ActiveRecord::Base
 
   def billable_email
     payment_gateway_customer.email
-  end
-
-  def github_repo(github_id)
-    repos.where(github_id: github_id).first
-  end
-
-  def create_github_repo(attributes)
-    repos.create(attributes)
   end
 
   def has_repos_with_missing_information?
@@ -49,6 +36,18 @@ class User < ActiveRecord::Base
     unless encrypted_token.nil?
       crypt.decrypt_and_verify(encrypted_token)
     end
+  end
+
+  def has_access_to_private_repos?
+    if token_scopes
+      token_scopes.split(",").include? "repo"
+    else
+      false
+    end
+  end
+
+  def payment_gateway_subscriptions
+    @payment_gateway_subscriptions ||= payment_gateway_customer.subscriptions
   end
 
   private

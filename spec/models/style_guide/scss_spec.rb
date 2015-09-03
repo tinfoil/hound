@@ -1,118 +1,53 @@
 require "rails_helper"
 
 describe StyleGuide::Scss do
-  describe "#violations_in_file" do
-    context "with default configuration" do
-      describe "for deep nested selectors" do
-        it "returns violation" do
-          content = ".a { .b { .c { background: #000; } } }"
+  describe "#file_review" do
+    it "returns a saved and incomplete file review" do
+      style_guide = build_style_guide
+      commit_file = build_commit_file(filename: "lib/a.scss")
 
-          expect(violations_in(content)).to include(
-            "Selector should have depth of applicability no greater than 2, but was 3"
-          )
-        end
-      end
+      result = style_guide.file_review(commit_file)
 
-      describe "for single quotes" do
-        it "has one violation" do
-          content = ".a { display: 'none'; }"
-
-          expect(violations_in(content)).to include(
-            "Prefer double-quoted strings"
-          )
-        end
-      end
-
-      describe "for no leading zeros" do
-        it "has one violation" do
-          content = ".a { margin: .5em; }"
-
-          expect(violations_in(content)).to include(
-            "`.5` should be written with a leading zero as `0.5`"
-          )
-        end
-      end
+      expect(result).to be_persisted
+      expect(result).not_to be_completed
     end
 
-    context "with custom configuration" do
-      context "for single quotes" do
-        it "returns no violation" do
-          content = ".a { display: 'none'; }\n"
-          config = {
-            "linters" => {
-              "StringQuotes" => {
-                "style" => "single_quotes"
-              }
-            }
-          }
+    it "schedules a review job" do
+      style_guide = build_style_guide("config")
+      commit_file = build_commit_file(filename: "lib/a.scss")
+      allow(Resque).to receive(:enqueue)
 
-          expect(violations_in(content, config)).to eq []
-        end
-      end
+      style_guide.file_review(commit_file)
 
-      context "for no leading zeros" do
-        it "returns no violation" do
-          content = ".a { margin: .5em; }\n"
-          config = {
-            "linters" => {
-              "LeadingZero" => {
-                "style" => "exclude_zero"
-              }
-            }
-          }
-
-          expect(violations_in(content, config)).to eq []
-        end
-      end
-
-      context "when exclude is provided as string" do
-        it "does not error" do
-          content = ".a { margin: .5em; }\n"
-          config = {
-            "linters" => {
-              "LeadingZero" => {
-                "exclude" => "lib/**",
-              }
-            }
-          }
-
-          expect(violations_in(content, config)).to eq [
-            "`.5` should be written with a leading zero as `0.5`"
-          ]
-        end
-      end
+      expect(Resque).to have_received(:enqueue).with(
+        ScssReviewJob,
+        filename: commit_file.filename,
+        commit_sha: commit_file.sha,
+        pull_request_number: commit_file.pull_request_number,
+        patch: commit_file.patch,
+        content: commit_file.content,
+        config: "config"
+      )
     end
+  end
 
-    context "over multiple runs" do
-      it "it reports errors only for the given file" do
-        style_guide = build_style_guide
-        bad_content = ".a { .b { .c { background: #000; } } }"
-        good_content = ".a { margin: 0.5em; }\n"
+  describe "#file_included?" do
+    it "returns true" do
+      style_guide = build_style_guide
 
-        bad_run = style_guide.violations_in_file(build_file(bad_content))
-        good_run = style_guide.violations_in_file(build_file(good_content))
-
-        expect(bad_run).not_to be_empty
-        expect(good_run).to be_empty
-      end
+      expect(style_guide.file_included?(double)).to eq true
     end
   end
 
   private
 
-  def violations_in(content, config = nil)
-    style_guide = build_style_guide(config)
-    style_guide.violations_in_file(build_file(content)).flat_map(&:messages)
-  end
-
-  def build_style_guide(config = nil)
-    repo_config = double("RepoConfig", enabled_for?: true, for: config)
-    repository_owner_name = "ralph"
-    StyleGuide::Scss.new(repo_config, repository_owner_name)
-  end
-
-  def build_file(text)
-    line = double("Line", content: "blah", number: 1, patch_position: 2)
-    double("CommitFile", content: text, filename: "lib/a.scss", line_at: line)
+  def build_style_guide(config = "config")
+    repo_config = double("RepoConfig", raw_for: config)
+    build = build(:build)
+    StyleGuide::Scss.new(
+      repo_config: repo_config,
+      build: build,
+      repository_owner_name: "ralph",
+    )
   end
 end

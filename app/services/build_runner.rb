@@ -1,5 +1,5 @@
 class BuildRunner
-  class ExpiredToken < StandardError; end
+  ExpiredToken = Class.new(StandardError)
 
   pattr_initialize :payload
 
@@ -7,8 +7,8 @@ class BuildRunner
     if repo && relevant_pull_request?
       review_pull_request
     end
-  rescue RepoConfig::ParserError
-    create_config_error_status
+  rescue RepoConfig::ParserError => e
+    commit_status.set_config_error(e.filename)
   rescue Octokit::Unauthorized
     if users_with_token.any?
       reset_token
@@ -16,35 +16,38 @@ class BuildRunner
     else
       raise
     end
+  rescue Octokit::NotFound
+    if token != Hound::GITHUB_TOKEN
+      remove_repo_from_user
+    end
+    raise
   end
 
   private
 
   def review_pull_request
     track_subscribed_build_started
-    create_pending_status
+    commit_status.set_pending
     upsert_owner
     build = create_build
-    BuildReport.run(pull_request, build)
+    review_files(build)
+    BuildReport.run(pull_request: pull_request, build: build, token: token)
   end
 
   def relevant_pull_request?
     pull_request.opened? || pull_request.synchronize?
   end
 
-  def violations
-    @violations ||= style_checker.violations
-  end
-
-  def style_checker
-    StyleChecker.new(pull_request)
+  def review_files(build)
+    StyleChecker.new(pull_request, build).review_files
   end
 
   def create_build
     repo.builds.create!(
-      violations: violations,
       pull_request_number: payload.pull_request_number,
       commit_sha: payload.head_sha,
+      payload: payload.build_data.to_json,
+      user: current_user_with_token,
     )
   end
 
@@ -53,16 +56,19 @@ class BuildRunner
   end
 
   def token
-    @token ||= user_token || ENV["HOUND_GITHUB_TOKEN"]
+    @token ||= current_user_with_token.try(:token) || Hound::GITHUB_TOKEN
   end
 
-  def user_token
-    user = users_with_token.sample
-    user && user.token
+  def current_user_with_token
+    @current_user_with_token ||= users_with_token.sample
   end
 
   def users_with_token
     repo.users.where.not(token: nil)
+  end
+
+  def last_token_user
+    repo.users.detect { |user| user.token == token }
   end
 
   def repo
@@ -73,9 +79,12 @@ class BuildRunner
   end
 
   def reset_token
-    token_user = repo.users.detect { |user| user.token == token }
-    token_user.update_columns(token: nil)
+    last_token_user.update_columns(token: nil)
+    @token = nil
+  end
 
+  def remove_repo_from_user
+    last_token_user.repos.destroy(repo)
     @token = nil
   end
 
@@ -87,23 +96,6 @@ class BuildRunner
     end
   end
 
-  def create_pending_status
-    github.create_pending_status(
-      payload.full_repo_name,
-      payload.head_sha,
-      I18n.t(:pending_status)
-    )
-  end
-
-  def create_config_error_status
-    github.create_error_status(
-      payload.full_repo_name,
-      payload.head_sha,
-      I18n.t(:config_error_status),
-      configuration_url
-    )
-  end
-
   def upsert_owner
     owner = Owner.upsert(
       github_id: payload.repository_owner_id,
@@ -113,11 +105,11 @@ class BuildRunner
     repo.update(owner: owner)
   end
 
-  def github
-    @github ||= GithubApi.new(token)
-  end
-
-  def configuration_url
-    Rails.application.routes.url_helpers.configuration_url(host: ENV["HOST"])
+  def commit_status
+    @commit_status ||= CommitStatus.new(
+      repo_name: payload.full_repo_name,
+      sha: payload.head_sha,
+      token: token,
+    )
   end
 end

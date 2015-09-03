@@ -1,21 +1,20 @@
 # Load and parse config files from GitHub repo
 class RepoConfig
   HOUND_CONFIG = ".hound.yml"
-  LANGUAGES = %w(ruby coffeescript javascript scss)
+  BETA_LANGUAGES = %w(go haml python swift)
+  LANGUAGES = %w(ruby coffeescript javascript scss haml go python swift)
   FILE_TYPES = {
     "ruby" => "yaml",
     "javascript" => "json",
     "coffeescript" => "json",
     "scss" => "yaml",
+    "haml" => "yaml"
   }
-
-  class ParserError < StandardError; end
 
   pattr_initialize :commit
 
   def enabled_for?(language)
-    options = options_for(language)
-    options.nil? || !disabled?(language)
+    !disabled?(language)
   end
 
   def for(language)
@@ -32,6 +31,16 @@ class RepoConfig
     end
   end
 
+  def raw_for(language)
+    config_file_path = config_path_for(language)
+
+    if config_file_path
+      commit.file_content(config_file_path)
+    else
+      ""
+    end
+  end
+
   def ignored_javascript_files
     ignore_file_content = load_javascript_ignore
 
@@ -42,10 +51,24 @@ class RepoConfig
     ignore_file_content.split("\n")
   end
 
+  def fail_on_violations?
+    hound_config["fail_on_violations"]
+  end
+
   private
 
+  def beta?(language)
+    BETA_LANGUAGES.include?(language)
+  end
+
+  def defualt_options_for(language)
+    { "enabled" => !beta?(language) }
+  end
+
   def options_for(language)
-    hound_config[language] || hound_config[language_camelize(language)]
+    hound_config[language] ||
+      hound_config[language_camelize(language)] ||
+      defualt_options_for(language)
   end
 
   def disabled?(language)
@@ -93,7 +116,7 @@ class RepoConfig
     config_file_content = commit.file_content(file_path)
 
     if config_file_content.present?
-      send("parse_#{file_type}", config_file_content)
+      send("parse_#{file_type}", file_path, config_file_content)
     else
       {}
     end
@@ -106,21 +129,21 @@ class RepoConfig
     commit.file_content(ignore_file)
   end
 
-  def parse_yaml(content)
+  def parse_yaml(file_path, content)
     YAML.safe_load(content, [Regexp])
   rescue Psych::Exception => e
-    raise_repo_config_parser_error(e)
+    raise_repo_config_parser_error(e, file_path)
   end
 
-  def parse_json(content)
+  def parse_json(file_path, content)
     JSON.parse(content)
   rescue JSON::ParserError => e
-    raise_repo_config_parser_error(e)
+    raise_repo_config_parser_error(e, file_path)
   end
 
-  def raise_repo_config_parser_error(e)
+  def raise_repo_config_parser_error(e, file_path)
     message = "#{e.class}: #{e.message}"
-    raise RepoConfig::ParserError.new(message)
+    raise RepoConfig::ParserError.new(message, filename: file_path)
   end
 
   def convert_legacy_keys(config)

@@ -1,71 +1,69 @@
 require "rails_helper"
 
 feature "Repo list", js: true do
-  let(:username) { 'houndci' }
+  let(:username) { ENV.fetch("HOUND_GITHUB_USERNAME") }
+  let(:user) { create(:user, token_scopes: "public_repo,user:email") }
 
-  scenario "user views landing page" do
-    user = create(:user)
+  scenario "signed in user views repo list" do
     repo = create(:repo, full_github_name: "thoughtbot/my-repo")
     repo.users << user
-    sign_in_as(user)
 
-    visit root_path
+    sign_in_as(user)
 
     expect(page).to have_content repo.full_github_name
   end
 
-  scenario "user sees onboarding" do
-    user = create(:user)
-    sign_in_as(user)
+  scenario "signed out user views repo list" do
+    repo = create(:repo, full_github_name: "thoughtbot/my-repo")
+    repo.users << user
 
-    visit repos_path
+    expect(page).not_to have_content repo.full_github_name
+  end
+
+  scenario "user sees onboarding" do
+    token = "letmein"
+    stub_repos_requests(token)
+
+    sign_in_as(user)
 
     expect(page).to have_content I18n.t("onboarding.title")
   end
 
   scenario "user does not see onboarding" do
-    user = create(:user)
     build = create(:build)
     build.repo.users << user
-    sign_in_as(user)
 
-    visit repos_path
+    sign_in_as(user)
 
     expect(page).to_not have_content I18n.t("onboarding.title")
   end
 
   scenario "user views list" do
-    user = create(:user)
     repo = create(:repo, full_github_name: "thoughtbot/my-repo")
     repo.users << user
-    sign_in_as(user)
 
-    visit repos_path
+    sign_in_as(user)
 
     expect(page).to have_content repo.full_github_name
   end
 
   scenario "user filters list" do
-    user = create(:user)
     repo = create(:repo, full_github_name: "thoughtbot/my-repo")
     repo.users << user
 
     sign_in_as(user)
-    visit repos_path
     find(".search").set(repo.full_github_name)
 
     expect(page).to have_content repo.full_github_name
   end
 
   scenario "user syncs repos" do
-    token = "usergithubtoken"
-    user = create(:user)
+    token = "letmein"
     repo = create(:repo, full_github_name: "user1/test-repo")
     user.repos << repo
-    stub_repo_requests(token)
+    stub_repos_requests(token)
 
     sign_in_as(user, token)
-    visit repos_path
 
     expect(page).to have_content(repo.full_github_name)
 
@@ -76,16 +74,16 @@ feature "Repo list", js: true do
   end
 
   scenario "user signs up" do
-    user = create(:user)
+    token = "letmein"
 
+    stub_repos_requests(token)
     sign_in_as(user)
 
-    expect(page).to have_content I18n.t("syncing_repos")
+    expect(page).to have_content I18n.t("sign_out")
   end
 
   scenario "user activates repo" do
-    token = "usergithubtoken"
-    user = create(:user)
+    token = "letmein"
     repo = create(:repo, private: false)
     repo.users << user
     hook_url = "http://#{ENV["HOST"]}/builds"
@@ -108,12 +106,11 @@ feature "Repo list", js: true do
   end
 
   scenario "user with admin access activates organization repo" do
-    user = create(:user)
+    token = "letmein"
     repo = create(:repo, private: false, full_github_name: "testing/repo")
     repo.users << user
     hook_url = "http://#{ENV["HOST"]}/builds"
     team_id = 4567 # from fixture
-    token = "usergithubtoken"
     stub_repo_with_org_request(repo.full_github_name, token)
     stub_hook_creation_request(repo.full_github_name, hook_url, token)
     stub_repo_teams_request(repo.full_github_name, token)
@@ -135,8 +132,7 @@ feature "Repo list", js: true do
   end
 
   scenario "user deactivates repo" do
-    token = "usergithubtoken"
-    user = create(:user)
+    token = "letmein"
     repo = create(:repo, :active)
     repo.users << user
     stub_repo_request(repo.full_github_name, token)
@@ -144,7 +140,6 @@ feature "Repo list", js: true do
     stub_remove_collaborator_request(username, repo.full_github_name, token)
 
     sign_in_as(user, token)
-    visit repos_path
     find(".repos .toggle").click
 
     expect(page).not_to have_css(".active")
@@ -157,8 +152,7 @@ feature "Repo list", js: true do
   end
 
   scenario "user deactivates private repo without subscription" do
-    token = "usergithubtoken"
-    user = create(:user)
+    token = "letmein"
     repo = create(:repo, :active, private: true)
     repo.users << user
     stub_repo_request(repo.full_github_name, token)
@@ -166,7 +160,6 @@ feature "Repo list", js: true do
     stub_remove_collaborator_request(username, repo.full_github_name, token)
 
     sign_in_as(user, token)
-    visit repos_path
     find(".repos .toggle").click
 
     expect(page).not_to have_css(".active")
